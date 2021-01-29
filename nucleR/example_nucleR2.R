@@ -1,0 +1,68 @@
+library(ggplot2)
+library(nucleR)
+
+data(nucleosome_htseq)
+
+reads <- get(data(nucleosome_htseq))
+
+# Process the paired end reads, but discard those with length > 200
+preads_orig <- processReads(reads, type="paired", fragmentLen=200)
+
+# Process the reads, but now trim each read to 40bp around the dyad
+preads_trim <- processReads(reads, type="paired", fragmentLen=200, trim=40)
+
+# Calculate the coverage, directly in reads per million (r.p.m.)
+cover_orig <- coverage.rpm(preads_orig)
+cover_trim <- coverage.rpm(preads_trim)
+
+# Compare both coverages, the dyad is much more clear in trimmed version
+t1 <- as.vector(cover_orig[[1]])[1:2000]
+t2 <- as.vector(cover_trim[[1]])[1:2000]
+
+plot_data <- rbind(
+    data.frame(
+        x=seq_along(t1),
+        y=t1,
+    coverage="original"
+    ),
+    data.frame(
+        x=seq_along(t2),
+        y=t2,
+        coverage="trimmed"
+    )
+)
+qplot(x=x, y=y, color=coverage, data=plot_data, geom="line",
+xlab="position", ylab="coverage")
+
+# Let's try to call nucleosomes from the trimmed version
+# First of all, let's remove some noise with FFT
+# Power spectrum will be plotted, look how with a 2%
+# of the components we capture almost all the signal
+cover_clean <- filterFFT(cover_trim, pcKeepComp=0.02, showPowerSpec=TRUE)
+
+# How clean is it now?
+plot_data <- rbind(
+    data.frame(
+        x=1:4000,
+        y=as.vector(cover_trim[[1]])[1:4000],
+        coverage="noisy"
+    ),
+    data.frame(
+        x=1:4000,
+        y=as.vector(cover_clean[[1]])[1:4000],
+        coverage="filtered"
+    )
+)
+qplot(x=x, y=y, color=coverage, data=plot_data, geom="line", xlab="position", ylab="coverage")
+
+# And how similar? Let's see the correlation
+cor(cover_clean[[1]], as.vector(cover_trim[[1]]))
+
+# Now it's time to call for peaks, first just as points
+# See that the score is only a measure of the height of the peak
+peaks <- peakDetection(cover_clean, threshold="25%", score=TRUE)
+plotPeaks(peaks[[1]], cover_clean[[1]], threshold="25%")
+
+# Do the same as previously, but now we will create the nucleosome calls:
+peaks <- peakDetection(cover_clean, width=147, threshold="25%", score=TRUE)
+plotPeaks(peaks, cover_clean[[1]], threshold="25%")
